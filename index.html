@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Canvas 点阵屏模拟</title>
+    <link rel="stylesheet" href="./styles.css?v=20260325170811" />
+  </head>
+  <body>
+    <div class="app">
+      <div class="card panel">
+        <h1>点阵屏参数</h1>
+
+        <div class="grid">
+          <div class="field">
+            <label>屏幕模式</label>
+            <div class="radioGroup" role="radiogroup" aria-label="屏幕模式">
+              <label class="radioPill">
+                <input type="radio" name="screenMode" value="black" checked />
+                <span>黑色屏（白点）</span>
+              </label>
+              <label class="radioPill">
+                <input type="radio" name="screenMode" value="white" />
+                <span>白色屏（黑点）</span>
+              </label>
+            </div>
+          </div>
+          <div class="field" >
+
+          </div>
+         
+
+          <div class="field">
+            <label for="dotRadius">点半径</label>
+            <input id="dotRadius" type="range" min="1" max="12" step="1" value="4" />
+          </div>
+          <div class="field">
+            <label for="dotGap">点间隔</label>
+            <input id="dotGap" type="range" min="0" max="14" step="1" value="3" />
+          </div>
+
+          <div class="field">
+            <label for="charGap">字符间隔（列）</label>
+            <input id="charGap" type="number" min="0" max="10" step="1" value="1" />
+          </div>
+          <div class="field">
+            <label for="lineGap">行间隔（行）</label>
+            <input id="lineGap" type="number" min="0" max="10" step="1" value="1" />
+          </div>
+        </div>
+
+        <div class="field" style="margin-top: 12px">
+          <label class="toggleLabel">
+            <input id="typewriter" type="checkbox" />
+            <span>逐字显示（打字机效果）</span>
+          </label>
+        </div>
+
+        <div class="field" style="margin-top: 12px">
+          <label for="textInput">输入文本（ASCII 32-126；支持换行）</label>
+          <textarea id="textInput" spellcheck="false">How are you latelly? </textarea>
+        </div>
+
+        <div class="actions">
+          <button id="btnRender" type="button">渲染</button>
+          <button id="btnClear" type="button">清屏</button>
+          <button id="btnFullscreen" type="button">全屏</button>
+        </div>
+
+        <div class="help">
+          - **激活点**：在黑屏时为白点；在白屏时为黑点（自动反相）。<br />
+          - **未激活点**：显示为更弱的同色系点，用于模拟真实点阵屏的“底噪”。<br />
+          - 字库使用经典 5x7 ASCII 点阵（常见于微控制器/点阵模块）。
+        </div>
+      </div>
+
+      <canvas id="screen" aria-label="dot matrix screen"></canvas>
+    </div>
+
+    <script src="./config.js?v=20260325170811"></script>
+    <script src="./app.js?v=20260325170811" defer></script>
+  </body>
+</html>
+
