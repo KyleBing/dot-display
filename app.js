@@ -3,8 +3,8 @@
  *
  * 存储格式（非常关键）：
  * - 每个字符占 5 个 byte（5 列）
- * - 按“列”存储（column-major）
- * - 每个 byte 的 bit0 表示最上方像素（LSB at top）
+ * - 按“列”存储（列优先）
+ * - 每个 byte 的 bit0 表示最上方像素（低位在顶端）
  *
  * 这样读取时：列 = glyph[x]，像素是否点亮 = (col >> y) & 1。
  */
@@ -44,6 +44,7 @@ const els = {
   dotGap: document.getElementById("dotGap"),
   charGap: document.getElementById("charGap"),
   lineGap: document.getElementById("lineGap"),
+  edgeGapDots: document.getElementById("edgeGapDots"),
   typewriter: document.getElementById("typewriter"),
   textInput: document.getElementById("textInput"),
   btnRender: document.getElementById("btnRender"),
@@ -51,28 +52,57 @@ const els = {
 };
 
 const CONFIG = window.DOT_DISPLAY_CONFIG ?? {
-  defaults: { screenMode: "black", dotRadius: 4, dotGap: 3, charGap: 1, lineGap: 1, typewriter: false },
+  defaults: { screenMode: "black", dotRadius: 4, dotGap: 3, charGap: 1, lineGap: 1, edgeGapDots: 0, typewriter: false },
   limits: {
     dotRadius: { min: 1, max: 12 },
     dotGap: { min: 0, max: 14 },
     charGap: { min: 0, max: 10 },
     lineGap: { min: 0, max: 10 },
+    edgeGapDots: { min: 0, max: 50 },
   },
   typewriter: { msPerChar: 40 },
   fullscreen: { maxGridX: 1200, maxGridY: 800 },
   dprMax: 3,
 };
 
-// Apply config defaults to radio UI (if present)
-(() => {
-  const desired = (CONFIG.defaults?.screenMode === "white") ? "white" : "black";
-  const radios = els.screenModeRadios;
-  if (!radios || radios.length === 0) return;
-  const alreadyChecked = radios.some((r) => r.checked);
-  if (alreadyChecked) return;
-  const target = radios.find((r) => r.value === desired) || radios[0];
-  target.checked = true;
-})();
+/** 将 CONFIG.defaults 写入表单，使首次打开页面与 config.js 一致。 */
+function applyConfigDefaultsToUI() {
+  const d = CONFIG.defaults;
+  if (!d) return;
+  const L = CONFIG.limits ?? {};
+
+  const setClamped = (el, value, limKey) => {
+    if (!el || value === undefined || value === null) return;
+    const lim = L[limKey];
+    const min = lim?.min ?? -Infinity;
+    const max = lim?.max ?? Infinity;
+    const n = typeof value === "number" ? value : Number.parseInt(String(value), 10);
+    const fallback =
+      Number.isFinite(n) ? n : Number.parseInt(String(el.value), 10);
+    el.value = String(clampInt(n, min, max, Number.isNaN(fallback) ? min : fallback));
+  };
+
+  setClamped(els.dotRadius, d.dotRadius, "dotRadius");
+  setClamped(els.dotGap, d.dotGap, "dotGap");
+  setClamped(els.charGap, d.charGap, "charGap");
+  setClamped(els.lineGap, d.lineGap, "lineGap");
+  setClamped(els.edgeGapDots, d.edgeGapDots, "edgeGapDots");
+
+  if (els.typewriter && typeof d.typewriter === "boolean") {
+    els.typewriter.checked = d.typewriter;
+  }
+
+  const mode = d.screenMode === "white" ? "white" : "black";
+  for (const r of els.screenModeRadios) {
+    r.checked = r.value === mode;
+  }
+
+  if (els.textInput && typeof d.text === "string") {
+    els.textInput.value = d.text;
+  }
+}
+
+applyConfigDefaultsToUI();
 
 function clampInt(v, min, max, fallback) {
   const n = Number.parseInt(v, 10);
@@ -117,7 +147,7 @@ function clearMatrix(matrix) {
   for (let y = 0; y < matrix.length; y++) matrix[y].fill(0);
 }
 
-function blitTextToMatrix(matrix, text, charGap, lineGap) {
+function blitTextToMatrix(matrix, text, charGap, lineGap, edgeGapDots) {
   const gridY = matrix.length;
   const gridX = matrix[0]?.length ?? 0;
   const glyphW = 5;
@@ -126,38 +156,49 @@ function blitTextToMatrix(matrix, text, charGap, lineGap) {
   const advanceX = glyphW + 1 + charGap;
   const advanceY = glyphH + 1 + lineGap;
 
-  let cursorX = 0;
-  let cursorY = 0;
+  const requested = clampInt(
+    edgeGapDots,
+    CONFIG.limits.edgeGapDots?.min ?? 0,
+    CONFIG.limits.edgeGapDots?.max ?? 50,
+    CONFIG.defaults.edgeGapDots ?? 0
+  );
+  const maxMargin = Math.min(Math.floor((gridX - 1) / 2), Math.floor((gridY - 1) / 2));
+  const margin = Math.max(0, Math.min(requested, maxMargin));
+  const right = gridX - margin;
+  const bottom = gridY - margin;
+
+  let cursorX = margin;
+  let cursorY = margin;
 
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
     if (ch === "\r") continue;
     if (ch === "\n") {
-      cursorX = 0;
+      cursorX = margin;
       cursorY += advanceY;
-      if (cursorY >= gridY) break;
+      if (cursorY + glyphH > bottom) break;
       continue;
     }
 
-    if (cursorX + glyphW > gridX) {
-      cursorX = 0;
+    if (cursorX + glyphW > right) {
+      cursorX = margin;
       cursorY += advanceY;
-      if (cursorY >= gridY) break;
+      if (cursorY + glyphH > bottom) break;
     }
 
     for (let gy = 0; gy < glyphH; gy++) {
       const py = cursorY + gy;
-      if (py < 0 || py >= gridY) continue;
+      if (py < margin || py >= bottom) continue;
       const row = matrix[py];
       for (let gx = 0; gx < glyphW; gx++) {
         const px = cursorX + gx;
-        if (px < 0 || px >= gridX) continue;
+        if (px < margin || px >= right) continue;
         if (isGlyphPixelOn5x7(ch, gx, gy)) row[px] = 1;
       }
     }
 
     cursorX += advanceX;
-    if (cursorY >= gridY) break;
+    if (cursorY + glyphH > bottom) break;
   }
 }
 
@@ -181,15 +222,15 @@ function resizeCanvasForGrid(canvas, gridX, gridY, radius, gap, targetW, targetH
 
   const ctx = canvas.getContext("2d");
 
-  // If we have a target size, scale the "virtual grid" (baseW/baseH) to fit.
-  // This enables showing a fullscreen-sized grid scaled down into the current canvas space.
+  // 若指定了目标尺寸，将「虚拟网格」（baseW×baseH）等比缩放以塞进画布。
+  // 用于把按全屏视口算出的点阵缩小绘制到当前 canvas 可视区域内。
   let scale = 1;
   let offsetX = 0;
   let offsetY = 0;
   if (typeof targetW === "number" && typeof targetH === "number") {
     const sx = targetW / baseW;
     const sy = targetH / baseH;
-    scale = Math.max(0.0001, Math.min(sx, sy)); // uniform scale, avoid 0
+    scale = Math.max(0.0001, Math.min(sx, sy)); // 等比例缩放，避免为 0
     offsetX = (targetW - baseW * scale) / 2;
     offsetY = (targetH - baseH * scale) / 2;
   }
@@ -200,18 +241,17 @@ function resizeCanvasForGrid(canvas, gridX, gridY, radius, gap, targetW, targetH
   return { ctx, cell, w, h, baseW, baseH, scale, offsetX, offsetY };
 }
 
-// Dot-matrix cursor overlay state (only visible while hovering the canvas)
+// 点阵鼠标覆盖层（仅悬停在 canvas 上时显示）
 const cursorOverlay = {
   visible: false,
-  // cursor position in grid coordinates (top-left anchor for the glyph)
+  // 点阵坐标中的光标锚点（字形左上角）
   gx: 0,
   gy: 0,
-  // cached render metrics for screen->grid mapping
+  // 最近一次绘制的度量，用于屏幕坐标 → 点阵格换算
   metrics: null,
 };
 
-// A small arrow-like cursor glyph (dx, dy) points in dot units.
-// Designed to be compact and readable on low-res dot matrices.
+// 小型箭头状光标点阵，(dx, dy) 以点距为单位；低分辨率下仍尽量可读
 const CURSOR_GLYPH_POINTS = [
   [0, 0],
   [0, 1], [1, 1],
@@ -231,7 +271,7 @@ function draw(matrix, opts) {
     resizeCanvasForGrid(els.canvas, gridX, gridY, radius, gap, targetW, targetH);
   const theme = getTheme(mode);
 
-  // Clear in screen space, then draw background in virtual space.
+  // 先在屏幕像素空间清空，再在虚拟网格空间铺背景色
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, Math.ceil(w * (window.devicePixelRatio || 1)), Math.ceil(h * (window.devicePixelRatio || 1)));
   ctx.setTransform((window.devicePixelRatio || 1) * scale, 0, 0, (window.devicePixelRatio || 1) * scale, offsetX * (window.devicePixelRatio || 1), offsetY * (window.devicePixelRatio || 1));
@@ -241,7 +281,7 @@ function draw(matrix, opts) {
   const cx0 = gap + radius;
   const cy0 = gap + radius;
 
-  // cache mapping metrics for pointer->grid conversion
+  // 缓存度量，供指针位置换算到点阵格
   cursorOverlay.metrics = { gridX, gridY, radius, gap, cell, cx0, cy0, w, h, baseW, baseH, scale, offsetX, offsetY, mode };
 
   // 先画一层较大的“辉光”再画实心点，能更像真实点阵屏（尤其黑底白点）。
@@ -270,7 +310,7 @@ function draw(matrix, opts) {
     }
   }
 
-  // Cursor overlay: draw after base dots so it "lights up" above content.
+  // 光标层：在底层点阵之后绘制，叠在内容之上
   if (cursorOverlay.visible && cursorOverlay.metrics) {
     const gx0 = cursorOverlay.gx;
     const gy0 = cursorOverlay.gy;
@@ -288,7 +328,7 @@ function draw(matrix, opts) {
       const x = gx0 + dx;
       const y = gy0 + dy;
       if (x < 0 || y < 0 || x >= gridX || y >= gridY) continue;
-      // slightly stronger glow + solid dot
+      // 稍强的辉光 + 实心点
       drawDot(x, y, radius + 2, theme.glow);
     }
     for (const [dx, dy] of CURSOR_GLYPH_POINTS) {
@@ -302,17 +342,17 @@ function draw(matrix, opts) {
 
 let matrix = buildMatrix({ gridX: 128, gridY: 100 });
 
-// Typewriter (逐字显示) state
+// 打字机（逐字显示）状态
 let typewriterTimer = null;
 let typewriterIndex = 0;
 const TYPEWRITER_MS = CONFIG.typewriter?.msPerChar ?? 40;
 
-function stopTypewriter() {
+function stopTypewriter({ keepProgress = false } = {}) {
   if (typewriterTimer !== null) {
     window.clearInterval(typewriterTimer);
     typewriterTimer = null;
   }
-  typewriterIndex = 0;
+  if (!keepProgress) typewriterIndex = 0;
 }
 
 function clampPositiveInt(n, fallback) {
@@ -358,6 +398,12 @@ function readSettings() {
     CONFIG.limits.lineGap.min, CONFIG.limits.lineGap.max,
     CONFIG.defaults.lineGap
   );
+  const edgeGapDots = clampInt(
+    els.edgeGapDots?.value ?? CONFIG.defaults.edgeGapDots ?? 0,
+    CONFIG.limits.edgeGapDots?.min ?? 0,
+    CONFIG.limits.edgeGapDots?.max ?? 50,
+    CONFIG.defaults.edgeGapDots ?? 0
+  );
   const selectedMode =
     els.screenModeRadios.find((r) => r.checked)?.value ||
     CONFIG.defaults.screenMode;
@@ -368,14 +414,12 @@ function readSettings() {
   const isFs = Boolean(document.fullscreenElement);
   const caps = CONFIG.fullscreen ?? { maxGridX: 1200, maxGridY: 800 };
 
-  // Virtual fullscreen grid: always compute grid from the viewport size,
-  // then scale it to fit the current visible canvas size.
+  // 虚拟全屏网格：按窗口内部宽高算行列，再缩放到当前 canvas 可视区域
   const virtualW = window.innerWidth;
   const virtualH = window.innerHeight;
   const virtual = computeAutoGridForSize(virtualW, virtualH, radius, gap, caps);
 
-  // Make the canvas element wrap the scaled virtual screen (no letterboxing).
-  // In normal (non-FS) layout, let CSS compute height from width via aspect-ratio.
+  // 让 canvas 外框比例与虚拟全屏一致，避免上下留白（非真全屏时用 CSS aspect-ratio 由宽推高度）
   if (!isFs) {
     els.canvas.style.aspectRatio = `${virtualW} / ${virtualH}`;
   } else {
@@ -394,6 +438,7 @@ function readSettings() {
       gap,
       charGap,
       lineGap,
+      edgeGapDots,
       mode,
       text,
       isFullscreen: isFs,
@@ -404,7 +449,7 @@ function readSettings() {
     };
   }
 
-  // Fallback if canvas is not measurable yet.
+  // canvas 尚无可测尺寸（例如首帧宽高为 0）时的退路
   return {
     gridX: 128,
     gridY: 100,
@@ -414,6 +459,7 @@ function readSettings() {
     gap,
     charGap,
     lineGap,
+    edgeGapDots,
     mode,
     text,
     isFullscreen: isFs,
@@ -441,7 +487,7 @@ async function toggleFullscreen() {
     await document.exitFullscreen();
     return;
   }
-  // Make fullscreen independent: only show the dot-matrix screen canvas.
+  // 仅点阵 canvas 进入全屏，不带上侧栏等其它 UI
   await els.canvas.requestFullscreen({ navigationUI: "hide" }).catch(() => {});
 }
 
@@ -449,9 +495,9 @@ function render() {
   const s = readSettings();
   ensureMatrixSize(s.gridX, s.gridY);
   clearMatrix(matrix);
-  // 逐字显示：只渲染到当前 index 的子串，剩余区域保持未激活点阵（0）。
+  // 逐字显示：只渲染到当前字符索引之前的子串，其余格保持未点亮（0）
   const visibleText = s.typewriter ? s.text.slice(0, typewriterIndex) : s.text;
-  blitTextToMatrix(matrix, visibleText, s.charGap, s.lineGap);
+  blitTextToMatrix(matrix, visibleText, s.charGap, s.lineGap, s.edgeGapDots);
   draw(matrix, {
     gridX: s.gridX,
     gridY: s.gridY,
@@ -500,11 +546,11 @@ els.canvas.addEventListener("dblclick", toggleFullscreen);
 
 const autoEls = [
   ...els.screenModeRadios,
-  els.dotRadius, els.dotGap, els.charGap, els.lineGap, els.typewriter, els.textInput
-];
+  els.dotRadius, els.dotGap, els.charGap, els.lineGap, els.edgeGapDots, els.typewriter, els.textInput
+].filter(Boolean);
 for (const el of autoEls) {
   el.addEventListener("input", () => {
-    // Any user change restarts the animation from the beginning.
+    // 任意参数变更则停止打字机、重置进度并重绘
     stopTypewriter();
     render();
   });
@@ -525,7 +571,8 @@ function startTypewriterIfNeeded() {
 
     typewriterIndex = Math.min(cur.text.length, typewriterIndex + 1);
     render();
-    if (typewriterIndex >= cur.text.length) stopTypewriter();
+    // 播完只停定时器并保留已播进度；若将索引归零，下次重绘（如鼠标移动画光标）会按空串显示导致文字消失
+    if (typewriterIndex >= cur.text.length) stopTypewriter({ keepProgress: true });
   }, TYPEWRITER_MS);
 }
 
@@ -538,18 +585,18 @@ document.addEventListener("fullscreenchange", () => {
   setFullscreenBtn(Boolean(document.fullscreenElement));
   const isFs = Boolean(document.fullscreenElement);
   if (isFs) {
-    // Enter fullscreen: auto-start loading (typewriter) and re-render.
+    // 进入全屏：按需启动打字机并重绘
     startTypewriterIfNeeded();
     render();
   } else {
-    // Exit fullscreen: stop typewriter and render static state.
+    // 退出全屏：停止打字机并按当前设置静态重绘
     stopTypewriter();
     render();
   }
 });
 
 window.addEventListener("resize", () => {
-  // ensure crisp re-render after fullscreen/viewport changes
+  // 全屏或视口变化后重绘，避免缩放模糊或尺寸错位
   render();
 });
 
@@ -566,35 +613,33 @@ function setCursorOverlayFromEvent(ev) {
   const m = cursorOverlay.metrics;
   if (!m) return;
 
-  // Use content-box coords (exclude borders) + account for CSS scaling.
+  // 使用内容盒坐标（不含边框），并考虑 CSS 对 canvas 的缩放
   const cw = els.canvas.clientWidth || 1;
   const ch = els.canvas.clientHeight || 1;
 
-  // offsetX/offsetY are relative to the padding edge; canvas padding is 0 -> content box.
+  // offsetX/offsetY 相对内边距边缘；本 canvas 无内边距，即内容盒内坐标
   const xCss = typeof ev.offsetX === "number" ? ev.offsetX : 0;
   const yCss = typeof ev.offsetY === "number" ? ev.offsetY : 0;
 
-  // Hide when outside canvas content bounds
+  // 超出 canvas 内容范围则隐藏光标层
   if (xCss < 0 || yCss < 0 || xCss > cw || yCss > ch) {
     cursorOverlay.visible = false;
     return;
   }
 
-  // Convert content-box CSS pixels -> draw coordinate CSS pixels.
-  // Because the canvas element is scaled by CSS, the draw coordinate system (m.w/m.h)
-  // may differ from the actual element size (cw/ch).
+  // 内容盒 CSS 像素 → 与位图逻辑尺寸一致的绘制坐标（m.w/m.h 可能与 cw/ch 不同）
   const xDraw = (xCss / cw) * m.w;
   const yDraw = (yCss / ch) * m.h;
 
-  // Inverse the scale-to-fit transform to convert screen-space to virtual grid space.
+  // 逆「缩放适配」变换：画布像素空间 → 虚拟网格空间
   const xVirtual = (xDraw - (m.offsetX ?? 0)) / (m.scale ?? 1);
   const yVirtual = (yDraw - (m.offsetY ?? 0)) / (m.scale ?? 1);
 
-  // cx0/cy0 are dot centers in virtual grid pixels.
+  // cx0/cy0 为虚拟网格坐标系中第一个圆点的圆心位置
   const gx = Math.round((xVirtual - m.cx0) / m.cell);
   const gy = Math.round((yVirtual - m.cy0) / m.cell);
 
-  // If the anchor is far outside, just hide (prevents weird clamping visuals)
+  // 锚点偏离网格过远则隐藏，避免出现怪异夹持
   if (gx < -8 || gy < -8 || gx > m.gridX + 8 || gy > m.gridY + 8) {
     cursorOverlay.visible = false;
     return;

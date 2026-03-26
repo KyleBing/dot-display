@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Canvas 点阵屏模拟</title>
-    <link rel="stylesheet" href="./styles.css?v=20260325170811" />
+    <link rel="stylesheet" href="./styles.css?v=20260326094723" />
   </head>
   <body>
     <div class="app">
@@ -47,6 +47,10 @@
             <label for="lineGap">行间隔（行）</label>
             <input id="lineGap" type="number" min="0" max="10" step="1" value="1" />
           </div>
+          <div class="field">
+            <label for="edgeGapDots">边缘留白（点）</label>
+            <input id="edgeGapDots" type="number" min="0" max="50" step="1" value="0" />
+          </div>
         </div>
 
         <div class="field" style="margin-top: 12px">
@@ -58,7 +62,10 @@
 
         <div class="field" style="margin-top: 12px">
           <label for="textInput">输入文本（ASCII 32-126；支持换行）</label>
-          <textarea id="textInput" spellcheck="false">How are you latelly? </textarea>
+          <textarea id="textInput" spellcheck="false">DOT DISPLAY
+MD：2026-03-26
+
+</textarea>
         </div>
 
         <div class="actions">
@@ -68,17 +75,17 @@
         </div>
 
         <div class="help">
-          - **激活点**：在黑屏时为白点；在白屏时为黑点（自动反相）。<br />
-          - **未激活点**：显示为更弱的同色系点，用于模拟真实点阵屏的“底噪”。<br />
-          - 字库使用经典 5x7 ASCII 点阵（常见于微控制器/点阵模块）。
+          - 【激活点】在黑屏时为白点；在白屏时为黑点（自动反相）。<br />
+          - 【未激活点】显示为更弱的同色系点，用于模拟真实点阵屏的“底噪”。<br />
+          - 【字库】使用经典 5x7 ASCII 点阵（常见于微控制器/点阵模块）。
         </div>
       </div>
 
       <canvas id="screen" aria-label="dot matrix screen"></canvas>
     </div>
 
-    <script src="./config.js?v=20260325170811"></script>
-    <script src="./app.js?v=20260325170811" defer></script>
+    <script src="./config.js?v=20260326094723"></script>
+    <script src="./app.js?v=20260326094723" defer></script>
   </body>
 </html>
 
